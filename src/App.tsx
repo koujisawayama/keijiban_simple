@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
 import { Activity, Users } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { useAuth } from './hooks/useAuth';
+import { useActivities } from './hooks/useActivities';
 import { AuthForm } from './components/auth/AuthForm';
 import { ActivityForm } from './components/activity/ActivityForm';
 import { ActivityList } from './components/activity/ActivityList';
@@ -10,41 +10,11 @@ import ErrorBoundary from './components/activity/ErrorBoundary'; // エラー境
 
 function App() {
   const { user } = useAuth();
-  const [activities, setActivities] = useState<{ [key: string]: any }[]>([]);
+  const { activities, loading, error, fetchActivities } = useActivities();
 
-  const fetchActivities = async () => {
-    const { data, error } = await supabase
-      .from('activities_with_nickname')
-      .select('*')
-      .order('activity_id', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching activities:', error.message, error.details);
-      return;
-    }
-
-    console.log('Fetched activities:', data); // デバッグログ
-    setActivities(data || []);
-  };
-
-  useEffect(() => {
-    fetchActivities();
-
-    const subscription = supabase
-      .channel('activities')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'activities' },
-        (payload) => {
-          setActivities((prev) => [payload.new, ...prev]);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, []);
+  if (error) {
+    console.error('Error fetching activities:', error);
+  }
 
   if (!user) {
     return (
@@ -94,3 +64,4 @@ function App() {
 }
 
 export default App;
+

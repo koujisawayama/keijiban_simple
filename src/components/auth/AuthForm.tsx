@@ -4,10 +4,22 @@ import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 
-interface ProfileData {
-  id: string | number;
-  nickname: string;
-}
+// デバウンス関数
+const debounce = (func: (...args: any[]) => void, delay: number) => {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  return (...args: any[]) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
+  };
+};
+
+// パスワードのバリデーション
+const validatePassword = (pass: string) => {
+  if (pass.length < 6) {
+    return 'パスワードは6文字以上必要です';
+  }
+  return null;
+};
 
 export function AuthForm() {
   const [isLogin, setIsLogin] = useState(true);
@@ -16,17 +28,9 @@ export function AuthForm() {
   const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const shakeRef = useRef<HTMLDivElement>(null);
   const [isNicknameUnique, setIsNicknameUnique] = useState(true);
   const [showErrorAnimation, setShowErrorAnimation] = useState(false);
-
-  // パスワードのバリデーション
-  const validatePassword = (pass: string) => {
-    if (pass.length < 6) {
-      return 'パスワードは6文字以上必要です';
-    }
-    return null;
-  };
+  const shakeRef = useRef<HTMLDivElement>(null);
 
   // エラー時のアニメーション
   const startShakeAnimation = () => {
@@ -34,11 +38,26 @@ export function AuthForm() {
     setTimeout(() => setShowErrorAnimation(false), 1500);
   };
 
+  // エラーハンドリング共通関数
+  const handleError = (err: unknown) => {
+    console.error('エラー:', err);
+    if (err instanceof Error) {
+      if (err.message.includes('rate limit exceeded')) {
+        setError('短時間に多くのリクエストを送信しました。しばらく待ってから再度お試しください');
+      } else {
+        setError(err.message);
+      }
+    } else {
+      setError('予期せぬエラーが発生しました');
+    }
+    startShakeAnimation();
+  };
+
   // ニックネームの重複チェック
-  const handleNicknameChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNicknameChange = debounce(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setNickname(value);
-    
+
     if (value.trim() === '') {
       setIsNicknameUnique(true);
       return;
@@ -51,19 +70,19 @@ export function AuthForm() {
         .eq('nickname', value);
 
       if (error) throw error;
-      
+
       setIsNicknameUnique(!data?.length);
       setError(data?.length ? 'このニックネームは既に使用されています' : '');
     } catch (err) {
       console.error('ニックネーム確認エラー:', err);
       setError('ニックネームの確認中にエラーが発生しました');
     }
-  };
+  }, 500);
 
   // フォーム送信処理
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // バリデーション
     if (!isNicknameUnique && !isLogin) {
       startShakeAnimation();
@@ -80,38 +99,48 @@ export function AuthForm() {
         const passwordError = validatePassword(password);
         if (passwordError) {
           setError(passwordError);
+          setIsLoading(false);
           return;
         }
 
         // ユーザー登録処理
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        const signUpWithRetry = async () => {
+          let retryCount = 0;
+          
+          while (retryCount < 3) {
+            const result = await supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                emailRedirectTo: `${window.location.origin}/auth/callback`,
+                data: {
+                  nickname
+                }
+              }
+            });
+            
+            if (!result.error || !result.error.message.includes('rate limit exceeded')) {
+              return result;
+            }
+            
+            // 指数バックオフでリトライ
+            await new Promise(resolve => setTimeout(resolve, 1000 * (2 ** retryCount)));
+            retryCount++;
+          }
+          throw new Error('リトライ回数の上限に達しました');
+        };
+
+        const signUpResult = await signUpWithRetry();
+
+        console.log({
           email,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-            data: {
-              nickname,
-              created_at: new Date().toISOString()
-            }
-          }
+          nickname,
         });
 
-        // エラーハンドリング
-        if (signUpError || !signUpData?.user) {
-          throw signUpError || new Error('ユーザー作成に失敗しました');
+        if (signUpResult.error || !signUpResult.data?.user) {
+          throw signUpResult.error || new Error('ユーザー作成に失敗しました');
         }
-
-        // プロフィール作成
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: signUpData.user.id,
-            nickname
-          })
-          .select()
-          .single();
-
-        if (profileError) throw profileError;
 
         alert('登録が完了しました！確認メールをチェックしてください');
       } else {
@@ -131,15 +160,11 @@ export function AuthForm() {
           .single();
 
         if (profileError) throw profileError;
+
+        alert(`ようこそ、${profileData.nickname}さん！`);
       }
     } catch (err) {
-      console.error('認証エラー:', err);
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('認証中に予期せぬエラーが発生しました');
-      }
-      startShakeAnimation();
+      handleError(err);
     } finally {
       setIsLoading(false);
     }
@@ -176,7 +201,12 @@ export function AuthForm() {
           type="password"
           label="パスワード（6文字以上）"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            setPassword(value);
+            const error = validatePassword(value);
+            setError(error || '');
+          }}
           disabled={isLoading}
           required
           minLength={6}
@@ -184,13 +214,14 @@ export function AuthForm() {
 
         {!isLogin && (
           <Input
-            type="text"
-            label="ニックネーム"
-            value={nickname}
-            onChange={handleNicknameChange}
-            disabled={isLoading}
-            required
-          />
+          type="text"
+          label="ニックネーム"
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value)} // デバウンスなしで直接更新
+          disabled={isLoading}
+          required
+        />
+        
         )}
 
         <Button

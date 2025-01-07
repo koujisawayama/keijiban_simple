@@ -4,9 +4,9 @@ import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 
-type ActivityFormProps = {
-  onPostSuccess: () => Promise<void>; // ここでプロパティを型定義
-};
+interface ActivityFormProps {
+  onPostSuccess?: () => Promise<void>;
+}
 
 export function ActivityForm({ onPostSuccess }: ActivityFormProps) {
   const [content, setContent] = useState('');

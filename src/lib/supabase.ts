@@ -14,3 +14,5 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     detectSessionInUrl: true
   }
 });
+
+export const storage = supabase.storage;
