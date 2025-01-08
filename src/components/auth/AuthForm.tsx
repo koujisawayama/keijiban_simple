@@ -106,10 +106,25 @@ export function AuthForm() {
         // ユーザー登録処理
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
-          password
+          password,
+          options: {
+            emailRedirectTo: window.location.origin + '/auth/callback'
+          }
         });
 
-        if (signUpError) throw signUpError;
+        if (signUpError) {
+          if (signUpError.message.includes('Email not confirmed')) {
+            throw new Error('メールアドレスの確認が完了していません。送信された確認メールをチェックしてください');
+          }
+          throw signUpError;
+        }
+
+        // セッションが存在しない場合、ユーザーにメール確認を促す
+        if (!signUpData.session) {
+          setError('確認メールを送信しました。メールを確認してアカウントを有効化してください');
+          setIsLoading(false);
+          return;
+        }
 
         // プロフィール情報を登録
         const { error: profileError } = await supabase
@@ -121,7 +136,8 @@ export function AuthForm() {
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             }
-          ]);
+          ])
+          .select();
 
         if (profileError) {
           console.error('プロフィール作成エラー:', profileError);
