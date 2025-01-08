@@ -104,45 +104,32 @@ export function AuthForm() {
         }
 
         // ユーザー登録処理
-        const signUpWithRetry = async () => {
-          let retryCount = 0;
-          
-          while (retryCount < 3) {
-            const result = await supabase.auth.signUp({
-              email,
-              password,
-              options: {
-                emailRedirectTo: `${window.location.origin}/auth/callback`,
-                data: {
-                  nickname
-                }
-              }
-            });
-            
-            if (!result.error || !result.error.message.includes('rate limit exceeded')) {
-              return result;
-            }
-            
-            // 指数バックオフでリトライ
-            await new Promise(resolve => setTimeout(resolve, 1000 * (2 ** retryCount)));
-            retryCount++;
-          }
-          throw new Error('リトライ回数の上限に達しました');
-        };
-
-        const signUpResult = await signUpWithRetry();
-
-        console.log({
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
-          password,
-          nickname,
+          password
         });
 
-        if (signUpResult.error || !signUpResult.data?.user) {
-          throw signUpResult.error || new Error('ユーザー作成に失敗しました');
+        if (signUpError) throw signUpError;
+
+        // プロフィール情報を登録
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([
+            {
+              id: signUpData.user?.id,
+              nickname,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+          ]);
+
+        if (profileError) {
+          console.error('プロフィール作成エラー:', profileError);
+          throw new Error('プロフィールの作成に失敗しました');
         }
 
-        alert('登録が完了しました！確認メールをチェックしてください');
+        // 登録後に掲示板画面にリダイレクト
+        window.location.href = '/board';
       } else {
         // ログイン処理
         const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
@@ -214,14 +201,13 @@ export function AuthForm() {
 
         {!isLogin && (
           <Input
-          type="text"
-          label="ニックネーム"
-          value={nickname}
-          onChange={(e) => setNickname(e.target.value)} // デバウンスなしで直接更新
-          disabled={isLoading}
-          required
-        />
-        
+            type="text"
+            label="ニックネーム"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            disabled={isLoading}
+            required
+          />
         )}
 
         <Button
