@@ -58,8 +58,10 @@ export function AuthForm() {
     const value = e.target.value;
     setNickname(value);
 
+    // 空白のときは特にチェックしない
     if (value.trim() === '') {
       setIsNicknameUnique(true);
+      setError('');
       return;
     }
 
@@ -71,6 +73,7 @@ export function AuthForm() {
 
       if (error) throw error;
 
+      // data.length が 0 ならユニーク
       setIsNicknameUnique(!data?.length);
       setError(data?.length ? 'このニックネームは既に使用されています' : '');
     } catch (err) {
@@ -220,7 +223,7 @@ export function AuthForm() {
             type="text"
             label="ニックネーム"
             value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
+            onChange={handleNicknameChange}
             disabled={isLoading}
             required
           />
