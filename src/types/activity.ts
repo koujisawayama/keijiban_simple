@@ -5,4 +5,5 @@
       created_at: string;
       user_email: string;
       user_nickname: string | null;
+      user_id: string
     };
